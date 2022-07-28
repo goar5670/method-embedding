@@ -43,17 +43,11 @@ class AdapterDoc:
     def __len__(self):
         return len(self.tokens)
 
-
-class CodebertAdapter:
-    def __init__(self):
-        from transformers import RobertaTokenizer
-
-        self.tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+class ModelAdapter:
+    def __init__(self, primary_tokenization):
+        self.primary_tokenization = primary_tokenization
         self.nlp = spacy.blank("en")
         self.regex_tok = create_tokenizer("regex")
-
-    def primary_tokenization(self, text):
-        return self.tokenizer.tokenize(text)
 
     def secondary_tokenization(self, tokens):
         new_tokens = []
@@ -150,15 +144,20 @@ def create_tokenizer(type, bpe_path=None, regex=None):
         import spacy
         from spacy.tokens import Doc
 
-        # tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
-        # nlp = spacy.blank("en")
-        adapter = CodebertAdapter()
+        tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+        adapter = ModelAdapter(primary_tokenization=tokenizer.tokenize)
 
         def tokenize(text):
-            # tokens = tokenizer.tokenize(text)
-            # doc = Doc(nlp.vocab, tokens, spaces=[False] * len(tokens))
             return adapter(text)
 
+        return tokenize
+    elif type == "codegpt2":
+        from transformers import GPT2Tokenizer
+        tokenizer = GPT2Tokenizer.from_pretrained("microsoft/CodeGPT-small-py")
+        adapter = ModelAdapter(primary_tokenization=tokenizer.tokenize)
+
+        def tokenize(text):
+            return adapter(text)
         return tokenize
     else:
         raise Exception("Supported tokenizer types: spacy, regex, bpe")
