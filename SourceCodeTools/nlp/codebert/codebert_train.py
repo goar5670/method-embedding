@@ -18,14 +18,14 @@ from SourceCodeTools.nlp.entity.utils.data import read_data
 
 import torch.nn as nn
 
-class CodebertHybridModel(nn.Module):
+class HybridModel(nn.Module):
     def __init__(
-            self, codebert_model, graph_emb, padding_idx, num_classes, dense_hidden=100, dropout=0.1, bert_emb_size=768,
-            no_graph=False
+        self, base_model, graph_emb, padding_idx, num_classes, dense_hidden=100, dropout=0.1, bert_emb_size=768,
+        no_graph=False,
     ):
-        super(CodebertHybridModel, self).__init__()
+        super(HybridModel, self).__init__()
 
-        self.codebert_model = codebert_model
+        self.base_model = base_model
         self.use_graph = not no_graph
 
         num_emb = padding_idx + 1  # padding id is usually not a real embedding
@@ -52,23 +52,6 @@ class CodebertHybridModel(nn.Module):
 
         self.loss_f = nn.CrossEntropyLoss(reduction="mean")
 
-    def forward(self, token_ids, graph_ids, mask, finetune=False):
-        if finetune:
-            x = self.codebert_model(input_ids=token_ids, attention_mask=mask).last_hidden_state
-        else:
-            with torch.no_grad():
-                x = self.codebert_model(input_ids=token_ids, attention_mask=mask).last_hidden_state
-
-        if self.use_graph:
-            graph_emb = self.graph_emb(graph_ids)
-            x = torch.cat([x, graph_emb], dim=-1)
-
-        x = torch.relu(self.fc1(x))
-        x = self.drop(x)
-        x = self.fc2(x)
-
-        return x
-
     def loss(self, logits, labels, mask, class_weights=None, extra_mask=None):
         if extra_mask is not None:
             mask = torch.logical_and(mask, extra_mask)
@@ -93,6 +76,48 @@ class CodebertHybridModel(nn.Module):
 
         return p, r, f1
 
+class CodeBertHybridModel(HybridModel):
+    def __init__(self, *args, **kwargs):
+        super(CodeBertHybridModel, self).__init__(*args, **kwargs)
+
+    def forward(self, token_ids, graph_ids, mask, finetune=False):
+        if finetune:
+            x = self.base_model(input_ids=token_ids, attention_mask=mask).last_hidden_state
+        else:
+            with torch.no_grad():
+                x = self.base_model(input_ids=token_ids, attention_mask=mask, output_hidden_states=True).last_hidden_state
+
+        if self.use_graph:
+            graph_emb = self.graph_emb(graph_ids)
+            x = torch.cat([x, graph_emb], dim=-1)
+
+        x = torch.relu(self.fc1(x))
+        x = self.drop(x)
+        x = self.fc2(x)
+
+        return x
+
+class CodeGPT2HybridModel(HybridModel):
+    def __init__(self, *args, **kwargs):
+        super(CodeGPT2HybridModel, self).__init__(*args, **kwargs)
+
+    
+    def forward(self, token_ids, graph_ids, mask, finetune=False):
+        if finetune:
+            x = self.base_model(input_ids=token_ids, attention_mask=mask).hidden_states[-1]
+        else:
+            with torch.no_grad():
+                x = self.base_model(input_ids=token_ids, attention_mask=mask, output_hidden_states=True).hidden_states[-1]
+
+        if self.use_graph:
+            graph_emb = self.graph_emb(graph_ids)
+            x = torch.cat([x, graph_emb], dim=-1)
+
+        x = torch.relu(self.fc1(x))
+        x = self.drop(x)
+        x = self.fc2(x)
+
+        return x
 
 def get_length_mask(target, lens):
     mask = torch.arange(target.size(1)).to(target.device)[None, :] < lens[:, None]
