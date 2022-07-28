@@ -8,7 +8,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.version import cuda
 from tqdm import tqdm
-from transformers import RobertaTokenizer, RobertaModel
+from transformers import GPT2Tokenizer
 
 from SourceCodeTools.models.Embedder import Embedder
 from SourceCodeTools.nlp.codebert.codebert_extract import CodeBertModelTrainer, load_typed_nodes
@@ -57,7 +57,7 @@ class CodebertHybridModel(nn.Module):
             x = self.codebert_model(input_ids=token_ids, attention_mask=mask).last_hidden_state
         else:
             with torch.no_grad():
-                x = self.codebert_model(input_ids=token_ids, attention_mask=mask).last_hidden_state
+                x = self.codebert_model(input_ids=token_ids, attention_mask=mask, output_hidden_states=True).hidden_states[-1]
 
         if self.use_graph:
             graph_emb = self.graph_emb(graph_ids)
@@ -152,9 +152,10 @@ class CodeBertModelTrainer2(CodeBertModelTrainer):
         self.set_gpu()
 
     def get_dataloaders(self, word_emb, graph_emb, suffix_prefix_buckets, **kwargs):
-        decoder_mapping = RobertaTokenizer.from_pretrained("microsoft/codebert-base").decoder
+        decoder_mapping = GPT2Tokenizer.from_pretrained("microsoft/CodeGPT-small-py").decoder
         tok_ids, words = zip(*decoder_mapping.items())
         self.vocab_mapping = dict(zip(words, tok_ids))
+        self.vocab_mapping["<unk>"] = len(self.vocab_mapping)
 
         train_batcher = self.get_batcher(
             self.train_data, self.batch_size, seq_len=self.seq_len,
