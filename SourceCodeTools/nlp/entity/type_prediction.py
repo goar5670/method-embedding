@@ -132,6 +132,9 @@ class ModelTrainer:
         self.ckpt_path = ckpt_path
         self.no_graph = no_graph
 
+    def set_type_ann_edges(self, path):
+        self.type_ann_edges = path
+
     def set_batcher_class(self):
         self.batcher = PythonBatcher
 

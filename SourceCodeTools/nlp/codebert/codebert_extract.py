@@ -27,9 +27,6 @@ class CodeBertModelTrainer(ModelTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def set_type_ann_edges(self, path):
-        self.type_ann_edges = path
-
     def get_batcher(self, *args, **kwargs):
         kwargs.update({"tokenizer": "codebert"})
         return self.batcher(*args, **kwargs)

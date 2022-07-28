@@ -14,13 +14,6 @@ class CodeBertModelTrainer2(CodeBertModelTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def set_type_ann_edges(self, path):
-        self.type_ann_edges = path
-
-    def get_batcher(self, *args, **kwargs):
-        kwargs.update({"tokenizer": "codebert"})
-        return self.batcher(*args, **kwargs)
-
     def train_model(self):
         # graph_emb = load_pkl_emb(self.graph_emb_path) if self.graph_emb_path is not None else None
 
