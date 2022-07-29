@@ -23,12 +23,16 @@ def load_typed_nodes(path):
     return typed_nodes
 
 
-class CodeBertModelTrainer(ModelTrainer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class BaseModelTrainer(ModelTrainer):
+    def __init__(self, model_name, base_model_tokenizer, base_model, *args, gpu_id=-1, **kwargs):
+        self.model_name = model_name
+        self.base_model_tokenizer = base_model_tokenizer
+        self.base_model = base_model
+        self.gpu_id = gpu_id
+        super(BaseModelTrainer, self).__init__(*args, **kwargs)
 
     def get_batcher(self, *args, **kwargs):
-        kwargs.update({"tokenizer": "codebert"})
+        kwargs.update({"tokenizer": self.model_name})
         return self.batcher(*args, **kwargs)
 
     def train_model(self):
@@ -36,9 +40,10 @@ class CodeBertModelTrainer(ModelTrainer):
 
         typed_nodes = load_typed_nodes(self.type_ann_edges)
 
-        decoder_mapping = RobertaTokenizer.from_pretrained("microsoft/codebert-base").decoder
+        decoder_mapping = self.base_model_tokenizer.decoder
         tok_ids, words = zip(*decoder_mapping.items())
         vocab_mapping = dict(zip(words, tok_ids))
+        vocab_mapping["<unk>"] = len(vocab_mapping)
         batcher = self.get_batcher(
             self.train_data + self.test_data, self.batch_size, seq_len=self.seq_len,
             graphmap=None,
@@ -47,7 +52,7 @@ class CodeBertModelTrainer(ModelTrainer):
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = RobertaModel.from_pretrained("microsoft/codebert-base")
+        model = self.base_model
         model.to(device)
 
         node_ids = []
@@ -85,14 +90,14 @@ class CodeBertModelTrainer(ModelTrainer):
 
         all_embs = torch.stack(embeddings, dim=0).numpy()
         embedder = Embedder(dict(zip(node_ids, range(len(node_ids)))), all_embs)
-        pickle.dump(embedder, open("codebert_embeddings.pkl", "wb"), fix_imports=False)
+        pickle.dump(embedder, open(f"{self.model_name}_embeddings.pkl", "wb"), fix_imports=False)
         print(node_ids)
 
 
 def main():
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
-    model = RobertaModel.from_pretrained("microsoft/codebert-base")
+    # model = RobertaModel.from_pretrained("microsoft/codebert-base")
     # model.to(device)
     args = get_type_prediction_arguments()
 
@@ -105,7 +110,13 @@ def main():
         min_entity_count=args.min_entity_count, random_seed=args.random_seed
     )
 
-    trainer = CodeBertModelTrainer(train_data, test_data, params={}, seq_len=512)
+    base_model = RobertaModel.from_pretrained("microsoft/codebert-base")
+    base_model_tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+
+    trainer = BaseModelTrainer(
+        train_data, test_data, params={}, seq_len=512, model_name="codebert",
+        base_model=base_model, base_model_tokenizer=base_model_tokenizer
+    )
     trainer.set_type_ann_edges(args.type_ann_edges)
     trainer.train_model()
 

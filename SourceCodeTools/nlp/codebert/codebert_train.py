@@ -11,8 +11,8 @@ from tqdm import tqdm
 from transformers import RobertaTokenizer, RobertaModel
 
 from SourceCodeTools.models.Embedder import Embedder
-from SourceCodeTools.nlp.codebert.codebert_extract import CodeBertModelTrainer, load_typed_nodes
-from SourceCodeTools.nlp.entity.type_prediction import get_type_prediction_arguments, ModelTrainer, load_pkl_emb, \
+from SourceCodeTools.nlp.codebert.codebert_extract import BaseModelTrainer
+from SourceCodeTools.nlp.entity.type_prediction import get_type_prediction_arguments, load_pkl_emb, \
     scorer, filter_labels
 from SourceCodeTools.nlp.entity.utils.data import read_data
 
@@ -170,16 +170,18 @@ def test_step(
     return loss, p, r, f1
 
 
-class CodeBertModelTrainer2(CodeBertModelTrainer):
-    def __init__(self, *args, gpu_id=-1, **kwargs):
+class HybridModelTrainer(BaseModelTrainer):
+    def __init__(self, hybrid_model_class, *args, gpu_id=-1, **kwargs):
+        self.hybrid_model_class = hybrid_model_class
         self.gpu_id = gpu_id
-        super().__init__(*args, **kwargs)
+        super(HybridModelTrainer, self).__init__(*args, **kwargs)
         self.set_gpu()
 
     def get_dataloaders(self, word_emb, graph_emb, suffix_prefix_buckets, **kwargs):
-        decoder_mapping = RobertaTokenizer.from_pretrained("microsoft/codebert-base").decoder
+        decoder_mapping = self.base_model_tokenizer.decoder
         tok_ids, words = zip(*decoder_mapping.items())
         self.vocab_mapping = dict(zip(words, tok_ids))
+        self.vocab_mapping["<unk>"] = len(self.vocab_mapping)
 
         train_batcher = self.get_batcher(
             self.train_data, self.batch_size, seq_len=self.seq_len,
@@ -313,7 +315,7 @@ class CodeBertModelTrainer2(CodeBertModelTrainer):
             self.device = f"cuda:{self.gpu_id}"
 
     def get_trial_dir(self):
-        return os.path.join(self.output_dir, "codebert_" + str(datetime.now())).replace(":", "-").replace(" ", "_")
+        return os.path.join(self.output_dir, f"{self.model_name}_" + str(datetime.now())).replace(":", "-").replace(" ", "_")
 
     def train_model(self):
 
@@ -326,9 +328,8 @@ class CodeBertModelTrainer2(CodeBertModelTrainer):
 
         train_batcher, test_batcher = self.get_dataloaders(None, graph_emb, suffix_prefix_buckets=suffix_prefix_buckets)
 
-        codebert_model = RobertaModel.from_pretrained("microsoft/codebert-base")
-        model = CodebertHybridModel(
-            codebert_model, graph_emb.e, padding_idx=train_batcher.graphpad, num_classes=train_batcher.num_classes(),
+        model = self.hybrid_model_class(
+            self.base_model, graph_emb.e, padding_idx=train_batcher.graphpad, num_classes=train_batcher.num_classes(),
             no_graph=self.no_graph
         )
         if self.use_cuda:
@@ -440,12 +441,16 @@ def main():
         allowed=allowed
     )
 
-    trainer = CodeBertModelTrainer2(
+    base_model_tokenizer = RobertaTokenizer.from_pretrained("microsft/codebert-base")
+    base_model = RobertaModel.from_pretrained("microsft/codebert-base")
+
+    trainer = HybridModelTrainer(
         train_data, test_data, params={"learning_rate": 1e-4, "learning_rate_decay": 0.99, "suffix_prefix_buckets": 1},
         graph_emb_path=args.graph_emb_path, word_emb_path=args.word_emb_path,
         output_dir=args.model_output, epochs=args.epochs, batch_size=args.batch_size, gpu_id=args.gpu,
         finetune=args.finetune, trials=args.trials, seq_len=args.max_seq_len, no_localization=args.no_localization,
-        no_graph=args.no_graph
+        base_model_tokenizer=base_model_tokenizer, base_model=base_model, no_graph=args.no_graph,
+        model_name="codebert", hybrid_model_class=CodeBertHybridModel
     )
     trainer.set_type_ann_edges(args.type_ann_edges)
     trainer.train_model()
